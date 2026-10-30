@@ -1,0 +1,6 @@
+{
+  "name": "KRD Arduino Universe",
+  "description": "The Complete Arduino & Electronics Learning Platform. Explore, learn, simulate circuits, write code, and build smart projects with an intelligent AI assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
