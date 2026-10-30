@@ -21,6 +21,7 @@ import {
   Zap,
   ArrowRight
 } from 'lucide-react';
+import { sendAiDebugRequest } from '../../utils/aiClient';
 
 interface SyntaxCheckResult {
   hasErrors: boolean;
@@ -360,26 +361,21 @@ void loop() {
     setTimeout(() => setSavedNotification(false), 2500);
   };
 
-  // Call Server-side Gemini AI for Debug / Explain / Auto-Fix
+  // Call Resilient Gemini AI for Debug / Explain / Auto-Fix
   const handleAiAction = async (actionType: 'explain' | 'debug' | 'autofix') => {
     setAiAnalyzing(true);
     setAiOutput(null);
     setAutoFixedCode(null);
 
     try {
-      const res = await fetch('/api/gemini/debug', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: activeEditorCode,
-          errorLog: errorLogInput,
-          action: actionType === 'explain' ? 'explain' : 'debug',
-          language
-        })
+      const data = await sendAiDebugRequest({
+        code: activeEditorCode,
+        errorLog: errorLogInput,
+        action: actionType === 'explain' ? 'explain' : 'debug',
+        language
       });
 
-      const data = await res.json();
-      if (res.ok && data.result) {
+      if (data && data.result) {
         setAiOutput(data.result);
 
         // If action is autofix or debug, check if code block exists
@@ -391,10 +387,10 @@ void loop() {
           }
         }
       } else {
-        setAiOutput(data.error || 'Unable to connect to AI Assistant. Please check connection.');
+        setAiOutput('Unable to process code. Please try again.');
       }
     } catch (err: any) {
-      setAiOutput(`Request failed: ${err.message}`);
+      setAiOutput(`Request notice: ${err.message}`);
     } finally {
       setAiAnalyzing(false);
     }

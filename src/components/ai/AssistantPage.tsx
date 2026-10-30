@@ -12,8 +12,17 @@ import {
   Code2, 
   AlertCircle,
   Zap,
-  Terminal
+  Terminal,
+  Key,
+  Settings,
+  HelpCircle,
+  ExternalLink
 } from 'lucide-react';
+import { 
+  sendAiChatRequest, 
+  getClientGeminiApiKey, 
+  setClientGeminiApiKey 
+} from '../../utils/aiClient';
 
 interface ChatMessage {
   id: string;
@@ -52,6 +61,9 @@ What hardware project or code question are you working on today?`,
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [customKeyInput, setCustomKeyInput] = useState(getClientGeminiApiKey());
+  const [keySaved, setKeySaved] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -92,53 +104,35 @@ What hardware project or code question are you working on today?`,
     setApiError(null);
 
     try {
-      // Build history strictly starting with a user turn
+      // Build history strictly starting with first user turn
       const firstUserIndex = messages.findIndex(m => m.sender === 'user');
       const relevantMessages = firstUserIndex !== -1 ? messages.slice(firstUserIndex) : [];
       const history = relevantMessages.slice(-6).map(m => ({
-        role: m.sender === 'user' ? 'user' : 'model',
+        role: (m.sender === 'user' ? 'user' : 'model') as 'user' | 'model',
         text: m.text
       }));
 
-      const res = await fetch('/api/gemini/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          language,
-          history
-        })
+      const result = await sendAiChatRequest({
+        message: text,
+        language,
+        history
       });
 
-      const data = await res.json();
+      const aiMsg: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        text: result.reply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages(prev => [...prev, aiMsg]);
 
-      if (data && data.reply) {
-        const aiMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          sender: 'ai',
-          text: data.reply,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        setMessages(prev => [...prev, aiMsg]);
-      } else {
-        const errorText = language === 'ku'
-          ? 'ببورە، پەیوەندی بە ڕاژەی ژیری دەستکرد کێشەی تێکەوت، تکایە کەمێکی تر دووبارە هەوڵبدەرەوە.'
-          : 'Unable to reach the AI model. Please try again in a moment.';
-        setApiError(data?.error || errorText);
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `ai-err-${Date.now()}`,
-            sender: 'ai',
-            text: errorText,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
+      if (result.errorNotice) {
+        setApiError(result.errorNotice);
       }
     } catch (err: any) {
       const errorText = language === 'ku'
-        ? `هەڵەی پەیوەندی تۆڕ: ${err.message}. تکایە پەیوەندی ئینتەرنێتەکەت بپشکنە.`
-        : `Network error: ${err.message}. Please verify your connection.`;
+        ? `هەڵەی پەیوەندی: ${err.message}. تکایە پەیوەندی ئینتەرنێت بپشکنە.`
+        : `Connection notice: ${err.message}. Please check connection.`;
       setApiError(errorText);
       setMessages(prev => [
         ...prev,
@@ -152,6 +146,16 @@ What hardware project or code question are you working on today?`,
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSaveCustomKey = () => {
+    setClientGeminiApiKey(customKeyInput);
+    setKeySaved(true);
+    setTimeout(() => {
+      setKeySaved(false);
+      setShowKeyModal(false);
+      setApiError(null);
+    }, 1500);
   };
 
   const handleCopyText = (id: string, text: string) => {
@@ -195,14 +199,114 @@ What hardware project or code question are you working on today?`,
           </p>
         </div>
 
-        <button
-          onClick={clearChat}
-          className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
-        >
-          <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-          <span>{t.ai.clear}</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => setShowKeyModal(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/40 text-xs font-medium text-purple-300 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-md"
+            title={language === 'ku' ? 'ڕێکخستنی کلیلی Vercel' : 'Vercel / API Key Settings'}
+          >
+            <Key className="w-3.5 h-3.5 text-purple-400" />
+            <span>{language === 'ku' ? 'ڕێکخستنی Vercel / API' : 'Vercel / API Settings'}</span>
+          </button>
+
+          <button
+            onClick={clearChat}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+            <span>{t.ai.clear}</span>
+          </button>
+        </div>
       </div>
+
+      {/* Vercel / API Key Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0D1424] border border-cyan-500/40 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-400">
+                  <Key className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    {language === 'ku' ? 'ڕێکخستنی کلیلی ژیری دەستکرد بۆ Vercel' : 'Gemini AI Configuration for Vercel'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {language === 'ku' ? 'هەنگاوەکانی بەستنەوەی سەرکەوتوو لەسەر Vercel' : 'Steps for smooth deployment on Vercel'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="text-slate-400 hover:text-white text-sm cursor-pointer p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Instruction steps */}
+            <div className="space-y-3 text-xs text-slate-300 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+              <div className="font-bold text-cyan-400">
+                {language === 'ku' ? 'چۆنیەتی بەگەڕخستن لەسەر Vercel بەبێ کێشە:' : 'How to configure Environment Variable in Vercel:'}
+              </div>
+              <ol className="list-decimal list-inside space-y-1.5 text-slate-300 leading-relaxed">
+                {language === 'ku' ? (
+                  <>
+                    <li>بڕۆ بۆ پڕۆژەکەت لە ماڵپەڕی <b>vercel.com</b>.</li>
+                    <li>کلیک لە <b>Settings</b> بکە و بڕۆ بۆ بەشی <b>Environment Variables</b>.</li>
+                    <li>لە بەشی Key بنووسە: <code className="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">GEMINI_API_KEY</code></li>
+                    <li>لە بەشی Value کلیلی تایبەتی خۆت لە Google AI Studio دابنێ.</li>
+                    <li>کلیکی <b>Save</b> بکە و دواتر لە بەشی Deployments یەک جار پڕۆژەکەت <b>Redeploy</b> بکەرەوە.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>Go to your project dashboard on <b>vercel.com</b>.</li>
+                    <li>Open <b>Settings</b> and navigate to <b>Environment Variables</b>.</li>
+                    <li>Add Key: <code className="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">GEMINI_API_KEY</code></li>
+                    <li>Paste your Gemini API key from Google AI Studio.</li>
+                    <li>Click <b>Save</b>, then trigger a <b>Redeploy</b> in your Deployments tab.</li>
+                  </>
+                )}
+              </ol>
+            </div>
+
+            {/* Direct Browser Key Override */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300 block">
+                {language === 'ku' ? 'یان تاقیکردنەوەی خێرا بە دانانی کلیل ڕاستەوخۆ لە وێبگەڕدا:' : 'Or test immediately with direct client API key:'}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={customKeyInput}
+                  onChange={(e) => setCustomKeyInput(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="flex-1 bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                />
+                <button
+                  onClick={handleSaveCustomKey}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-colors shrink-0 cursor-pointer"
+                >
+                  {keySaved ? (language === 'ku' ? 'پاشەکەوتکرا ✓' : 'Saved ✓') : (language === 'ku' ? 'پاشەکەوتکردن' : 'Save')}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {language === 'ku' ? 'کلیلەکەت تەنها لەناو وێبگەڕی مۆبایل یان کۆمپیوتەری خۆتدا دەمێنێتەوە.' : 'Key is kept safely in your personal browser local storage.'}
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                {language === 'ku' ? 'داخستن' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Suggested Inquiries */}
       <div className="space-y-2">
@@ -233,17 +337,25 @@ What hardware project or code question are you working on today?`,
               <p>{apiError}</p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              const lastUser = [...messages].reverse().find(m => m.sender === 'user');
-              if (lastUser) {
-                handleSendMessage(lastUser.text);
-              }
-            }}
-            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shrink-0 transition-colors cursor-pointer"
-          >
-            {language === 'ku' ? 'دووبارە هەوڵبدەرەوە' : 'Retry'}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowKeyModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold transition-colors cursor-pointer"
+            >
+              {language === 'ku' ? 'ڕێکخستنی کلیل' : 'Setup Key'}
+            </button>
+            <button
+              onClick={() => {
+                const lastUser = [...messages].reverse().find(m => m.sender === 'user');
+                if (lastUser) {
+                  handleSendMessage(lastUser.text);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-colors cursor-pointer"
+            >
+              {language === 'ku' ? 'دووبارە' : 'Retry'}
+            </button>
+          </div>
         </div>
       )}
 

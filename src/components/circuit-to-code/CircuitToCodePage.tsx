@@ -15,6 +15,7 @@ import {
   Layers,
   ShieldCheck
 } from 'lucide-react';
+import { sendCircuitToCodeRequest } from '../../utils/aiClient';
 
 export const CircuitToCodePage: React.FC = () => {
   const { t, language, setActiveEditorCode, setCurrentPage, setActiveSimulatorPreset } = useApp();
@@ -67,25 +68,20 @@ export const CircuitToCodePage: React.FC = () => {
     setGeneratedResult(null);
 
     try {
-      const res = await fetch('/api/gemini/circuit-to-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          board: selectedBoard,
-          components: selectedComponents,
-          description: projectGoal,
-          language
-        })
+      const data = await sendCircuitToCodeRequest({
+        board: selectedBoard,
+        components: selectedComponents,
+        description: projectGoal,
+        language
       });
 
-      const data = await res.json();
-      if (res.ok && data.result) {
+      if (data && data.result) {
         setGeneratedResult(data.result);
       } else {
-        setGeneratedResult(data.error || 'Failed to generate circuit code.');
+        setGeneratedResult('Failed to generate circuit code.');
       }
     } catch (err: any) {
-      setGeneratedResult(`Error: ${err.message}`);
+      setGeneratedResult(`Notice: ${err.message}`);
     } finally {
       setIsGenerating(false);
     }

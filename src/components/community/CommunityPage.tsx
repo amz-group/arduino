@@ -53,17 +53,67 @@ export const CommunityPage: React.FC = () => {
   const [commentText, setCommentText] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
 
+  const defaultCommunityPosts: CommunityPost[] = [
+    {
+      id: 'post-1',
+      author: 'Aso Barzan',
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      title: 'Smart Greenhouse with ESP32 & DHT22 in Erbil',
+      titleKu: 'خانووی شوشەیی زیرەک بە ESP32 و شێداری DHT22 لە هەولێر',
+      description: 'Built an automated greenhouse monitoring temperature, soil moisture, and venting fans using ESP32 with Telegram notifications.',
+      category: 'IoT & Automation',
+      components: ['ESP32 DevKit', 'DHT22 Sensor', 'Capacitive Soil Moisture', '5V Relay Module', '12V Exhaust Fan'],
+      likes: 42,
+      commentsCount: 7,
+      createdAt: '2 hours ago',
+      comments: [
+        { id: 'c1', author: 'Darya K.', text: 'Very impressive! How are you calibrating the capacitive sensor?', time: '1 hour ago' },
+        { id: 'c2', author: 'Aso Barzan', text: 'I mapped dry air reading (~3200) and submerged in water (~1400) via analogRead.', time: '45 mins ago' }
+      ]
+    },
+    {
+      id: 'post-2',
+      author: 'Karwan Slemani',
+      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&auto=format&fit=crop&q=80',
+      title: 'Autonomous Maze Solver Robot with 3x HC-SR04',
+      titleKu: 'ڕۆبۆتی پێچاوپێچ بڕی خۆکار بە ٣ هەستەوەری HC-SR04',
+      description: 'Created an Arduino Uno maze navigation car using 3 ultrasonic sensors (left, front, right) and L298N dual H-bridge motor driver.',
+      category: 'Robotics',
+      components: ['Arduino Uno R3', '3x HC-SR04 Ultrasonic', 'L298N Motor Driver', '2x TT Geared Motors', '7.4V Li-ion Battery'],
+      likes: 38,
+      commentsCount: 4,
+      createdAt: '5 hours ago',
+      comments: []
+    }
+  ];
+
   const fetchPosts = async () => {
     try {
       const res = await fetch('/api/community/posts');
-      const data = await res.json();
-      if (res.ok && data.posts) {
-        setPosts(data.posts);
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.posts && data.posts.length > 0) {
+          setPosts(data.posts);
+          setLoading(false);
+          return;
+        }
       }
     } catch (e) {
-      console.error(e);
+      console.warn('[Community] Backend not reachable, using local store');
     } finally {
       setLoading(false);
+    }
+
+    try {
+      const local = localStorage.getItem('krd_community_posts');
+      if (local) {
+        setPosts(JSON.parse(local));
+      } else {
+        setPosts(defaultCommunityPosts);
+      }
+    } catch {
+      setPosts(defaultCommunityPosts);
     }
   };
 
@@ -73,14 +123,17 @@ export const CommunityPage: React.FC = () => {
 
   const handleLike = async (postId: string) => {
     if (likedPosts[postId]) return;
+    setLikedPosts(prev => ({ ...prev, [postId]: true }));
+    setPosts(prev => {
+      const updated = prev.map(p => p.id === postId ? { ...p, likes: p.likes + 1 } : p);
+      try { localStorage.setItem('krd_community_posts', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+
     try {
-      const res = await fetch(`/api/community/posts/${postId}/like`, { method: 'POST' });
-      if (res.ok) {
-        setLikedPosts(prev => ({ ...prev, [postId]: true }));
-        setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes: p.likes + 1 } : p));
-      }
+      await fetch(`/api/community/posts/${postId}/like`, { method: 'POST' });
     } catch (e) {
-      console.error(e);
+      // offline like saved locally
     }
   };
 
@@ -89,34 +142,43 @@ export const CommunityPage: React.FC = () => {
     if (!postTitle || !postDesc) return;
     setSubmitting(true);
 
+    const componentsArray = postComponents.split(',').map(s => s.trim()).filter(Boolean);
+    const newPost: CommunityPost = {
+      id: `post-${Date.now()}`,
+      author: authorName || 'KRD Maker',
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorName || 'KRD')}`,
+      title: postTitle,
+      description: postDesc,
+      category: postCategory,
+      components: componentsArray,
+      code: postCode,
+      likes: 1,
+      commentsCount: 0,
+      createdAt: 'Just now',
+      comments: []
+    };
+
+    setPosts(prev => {
+      const updated = [newPost, ...prev];
+      try { localStorage.setItem('krd_community_posts', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+
     try {
-      const componentsArray = postComponents.split(',').map(s => s.trim()).filter(Boolean);
-      const res = await fetch('/api/community/posts', {
+      await fetch('/api/community/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          author: authorName || 'KRD Maker',
-          title: postTitle,
-          description: postDesc,
-          category: postCategory,
-          components: componentsArray,
-          code: postCode
-        })
+        body: JSON.stringify(newPost)
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        setPosts(prev => [data.post, ...prev]);
-        setShowCreateModal(false);
-        setPostTitle('');
-        setPostDesc('');
-        setPostCode('');
-        addXp(80);
-      }
     } catch (err) {
-      console.error(err);
+      // saved locally
     } finally {
       setSubmitting(false);
+      setShowCreateModal(false);
+      setPostTitle('');
+      setPostDesc('');
+      setPostCode('');
+      addXp(80);
     }
   };
 
